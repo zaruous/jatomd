@@ -6,9 +6,9 @@ import io.github.analyzer.model.ControllerReport;
 import io.github.analyzer.model.Endpoint;
 
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Spring Hierarchy Analyzer
@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  *   java -jar spring-hierarchy-analyzer.jar [target.jar]
  *
  * 출력:
- *   {jar명}-call-hierarchy.md
+ *   {jar명}/{패키지경로}/{Controller}.md
  */
 public class Main {
 
@@ -48,7 +48,7 @@ public class Main {
                     try { return analyzer.analyzeController(ctrl); }
                     catch (Exception e) { throw new RuntimeException(e); }
                 })
-                .collect(Collectors.toList());
+                .toList();
 
             // 콘솔 출력
             for (ControllerReport report : reports) {
@@ -62,17 +62,19 @@ public class Main {
                 System.out.println();
             }
 
-            // Markdown 저장
-            String reportName = Paths.get(jarPath)
+            // Markdown 저장 — 컨트롤러 패키지 구조에 따른 디렉토리 배치
+            String baseName = Paths.get(jarPath)
                 .getFileName().toString()
-                .replace(".jar", "") + "-call-hierarchy.md";
+                .replace(".jar", "");
+            Path outDir = Paths.get(baseName);
 
-            String combined = reports.stream()
-                .map(ControllerReport::toMarkdown)
-                .collect(Collectors.joining("\n\n---\n\n"));
-
-            Files.writeString(Paths.get(reportName), combined);
-            System.out.println("✅ 리포트 저장 완료: " + reportName);
+            for (ControllerReport report : reports) {
+                // controllerClass: "com/example/web/UserController" 형태
+                Path mdPath = outDir.resolve(report.controllerClass + ".md");
+                Files.createDirectories(mdPath.getParent());
+                Files.writeString(mdPath, report.toMarkdown());
+                System.out.println("✅ 저장: " + mdPath);
+            }
         }
     }
 }

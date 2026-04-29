@@ -21,6 +21,35 @@ public class ControllerReport {
         return controllerClass.substring(controllerClass.lastIndexOf('/') + 1);
     }
 
+    public String qualifiedClassName() {
+        return controllerClass.replace('/', '.');
+    }
+
+    public List<String> beanUtilsSpringControllerLoads() {
+        Map<String, LinkedHashSet<String>> grouped = collectBeanLoadsByEndpoint("Spring Controller");
+        List<String> lines = new ArrayList<>();
+        grouped.forEach((endpointMethod, labels) ->
+            labels.forEach(label -> lines.add(endpointMethod + "() -> " + label)));
+        return lines;
+    }
+
+    public void appendBeanUtilsSpringControllerSummary(StringBuilder sb) {
+        Map<String, LinkedHashSet<String>> grouped = collectBeanLoadsByEndpoint("Spring Controller");
+        sb.append("## ").append(qualifiedClassName()).append("\n\n");
+        if (grouped.isEmpty()) {
+            sb.append("> N/A\n\n");
+            return;
+        }
+
+        sb.append("| Endpoint Method | BeanUtils.get(...)[Spring Controller] |\n");
+        sb.append("|---|---|\n");
+        grouped.forEach((endpointMethod, labels) -> sb.append("| `")
+            .append(endpointMethod).append("()` | ")
+            .append(String.join("<br>", labels))
+            .append(" |\n"));
+        sb.append("\n");
+    }
+
     // ── 전체 Markdown 리포트 ──────────────────────
     public String toMarkdown() {
         StringBuilder sb = new StringBuilder();
@@ -31,10 +60,17 @@ public class ControllerReport {
         sb.append("---\n\n");
 
         sb.append("## 엔드포인트별 호출 구조\n\n");
-        for (Endpoint ep : endpoints) {
-            appendEndpoint(sb, ep);
+        if (endpoints.isEmpty()) {
+            sb.append("> 감지된 엔드포인트가 없습니다. ")
+              .append("현재 컨트롤러가 `@RequestMapping` 계열이 아니거나, ")
+              .append("바이트코드에서 Spring 매핑 정보를 추출하지 못했을 수 있습니다.\n\n");
+        } else {
+            for (Endpoint ep : endpoints) {
+                appendEndpoint(sb, ep);
+            }
         }
 
+        appendBeanUtilsLoadSummary(sb);
         appendBeanUtilsSummary(sb);
         appendLlmContext(sb);
 
@@ -44,6 +80,7 @@ public class ControllerReport {
     private void appendEndpoint(StringBuilder sb, Endpoint ep) {
         // 헤더
         sb.append("### `@").append(ep.httpMethod()).append("` ")
+          .append(ep.path()).append(" -> ")
           .append(ep.methodName()).append("()\n\n");
 
         // 파라미터 테이블
@@ -77,6 +114,22 @@ public class ControllerReport {
         sb.append("\n");
     }
 
+    private void appendBeanUtilsLoadSummary(StringBuilder sb) {
+        sb.append("---\n\n## BeanUtils 로드 객체 요약\n\n");
+        List<String> lines = new ArrayList<>();
+        for (Endpoint ep : endpoints) {
+            collectBeanLoads(ep.tree(), ep.methodName(), lines, null);
+        }
+
+        if (lines.isEmpty()) {
+            sb.append("> N/A\n\n");
+            return;
+        }
+
+        lines.forEach(line -> sb.append("- ").append(line).append("\n"));
+        sb.append("\n");
+    }
+
     private void appendBeanUtilsSummary(StringBuilder sb) {
         sb.append("---\n\n## ⚠️ BeanUtils 사용 위치 요약\n\n");
         List<String> allPaths = new ArrayList<>();
@@ -84,10 +137,46 @@ public class ControllerReport {
             ep.tree().collectBeanUtilsPaths(allPaths, new ArrayDeque<>());
         }
         if (allPaths.isEmpty()) {
-            sb.append("> BeanUtils 사용 없음\n\n");
+            sb.append("> N/A\n\n");
         } else {
             allPaths.forEach(p -> sb.append("- ").append(p).append("\n"));
             sb.append("\n");
+        }
+    }
+
+    private Map<String, LinkedHashSet<String>> collectBeanLoadsByEndpoint(String roleFilter) {
+        Map<String, LinkedHashSet<String>> grouped = new LinkedHashMap<>();
+        for (Endpoint ep : endpoints) {
+            collectBeanLoads(ep.tree(), ep.methodName(), grouped, roleFilter);
+        }
+        return grouped;
+    }
+
+    private void collectBeanLoads(CallNode node, String endpointMethod,
+                                  Map<String, LinkedHashSet<String>> grouped, String roleFilter) {
+        if ("BEAN_UTILS".equals(node.type)) {
+            String role = node.beanRole();
+            if (roleFilter == null || roleFilter.equals(role)) {
+                grouped.computeIfAbsent(endpointMethod, ignored -> new LinkedHashSet<>())
+                    .add(node.label());
+            }
+        }
+        for (CallNode child : node.children) {
+            collectBeanLoads(child, endpointMethod, grouped, roleFilter);
+        }
+    }
+
+    private void collectBeanLoads(CallNode node, String endpointMethod,
+                                  List<String> lines, String roleFilter) {
+        if ("BEAN_UTILS".equals(node.type)) {
+            String role = node.beanRole();
+            String line = endpointMethod + "() -> " + node.label();
+            if ((roleFilter == null || roleFilter.equals(role)) && !lines.contains(line)) {
+                lines.add(line);
+            }
+        }
+        for (CallNode child : node.children) {
+            collectBeanLoads(child, endpointMethod, lines, roleFilter);
         }
     }
 
@@ -101,6 +190,7 @@ public class ControllerReport {
         sb.append("[현재 코드베이스 호출 구조]\n");
         for (Endpoint ep : endpoints) {
             sb.append("@").append(ep.httpMethod()).append(" ")
+              .append(ep.path()).append(" ")
               .append(ep.signature().oneLine(ep.methodName())).append("\n");
             appendLlmTree(sb, ep.tree(), 1);
             sb.append("\n");

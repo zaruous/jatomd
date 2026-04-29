@@ -20,6 +20,7 @@ public class JarClassLoader implements Closeable {
 
     private final JarFile jarFile;
     private final Map<String, JarEntry> entryMap = new HashMap<>();
+    private final Map<String, Boolean> controllerCache = new HashMap<>();
 
     public JarClassLoader(String jarPath) throws IOException {
         this.jarFile = new JarFile(jarPath);
@@ -103,6 +104,57 @@ public class JarClassLoader implements Closeable {
     }
 
     public int classCount() { return entryMap.size(); }
+
+    public boolean isSpringController(String internalName) {
+        return controllerCache.computeIfAbsent(internalName, this::scanControllerLikeClass);
+    }
+
+    private boolean scanControllerLikeClass(String internalName) {
+        try (InputStream is = openClass(internalName)) {
+            if (is == null) return false;
+            ClassReader cr = new ClassReader(is);
+            boolean[] found = {false};
+            cr.accept(new ClassVisitor(Opcodes.ASM9) {
+                @Override
+                public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+                    if (isControllerAnnotation(desc) || isMappingAnnotation(desc)) {
+                        found[0] = true;
+                    }
+                    return null;
+                }
+
+                @Override
+                public MethodVisitor visitMethod(int access, String name, String descriptor,
+                                                 String signature, String[] exceptions) {
+                    return new MethodVisitor(Opcodes.ASM9) {
+                        @Override
+                        public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+                            if (isMappingAnnotation(desc)) {
+                                found[0] = true;
+                            }
+                            return null;
+                        }
+                    };
+                }
+            }, ClassReader.SKIP_CODE);
+            return found[0];
+        } catch (IOException ignored) {
+            return false;
+        }
+    }
+
+    private boolean isControllerAnnotation(String desc) {
+        return desc.contains("RestController") || desc.contains("Controller");
+    }
+
+    private boolean isMappingAnnotation(String desc) {
+        return desc.contains("RequestMapping")
+            || desc.contains("GetMapping")
+            || desc.contains("PostMapping")
+            || desc.contains("PutMapping")
+            || desc.contains("DeleteMapping")
+            || desc.contains("PatchMapping");
+    }
 
     @Override
     public void close() throws IOException { jarFile.close(); }

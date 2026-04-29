@@ -8,6 +8,7 @@ import io.github.analyzer.model.Endpoint;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -49,6 +50,28 @@ public class Main {
                     catch (Exception e) { throw new RuntimeException(e); }
                 })
                 .toList();
+            long endpointCount = reports.stream().mapToLong(r -> r.endpoints.size()).sum();
+            System.out.println("   감지된 엔드포인트 수: " + endpointCount + "개\n");
+
+            if (endpointCount == 0) {
+                System.out.println("⚠️  Spring 매핑 메서드를 감지하지 못했습니다.");
+                System.out.println("   @RequestMapping 계열 사용 방식 또는 바이트코드 메타데이터를 확인해 주세요.\n");
+            }
+
+            List<String> beanUtilsControllerLoads = reports.stream()
+                .flatMap(report -> report.beanUtilsSpringControllerLoads().stream())
+                .toList();
+
+            System.out.println("=".repeat(60));
+            System.out.println("📌 BeanUtils.get(...)[Spring Controller] 요약");
+            if (beanUtilsControllerLoads.isEmpty()) {
+                System.out.println("  - N/A\n");
+            } else {
+                for (String line : beanUtilsControllerLoads) {
+                    System.out.println("  - " + line);
+                }
+                System.out.println();
+            }
 
             // 콘솔 출력
             for (ControllerReport report : reports) {
@@ -67,6 +90,15 @@ public class Main {
                 .getFileName().toString()
                 .replace(".jar", "");
             Path outDir = Paths.get(baseName);
+            Files.createDirectories(outDir);
+
+            Path readmePath = outDir.resolve("README.md");
+            Files.writeString(readmePath, buildOutputReadmeMarkdown(baseName));
+            System.out.println("✅ 저장: " + readmePath);
+
+            Path summaryPath = outDir.resolve("00-beanutils-spring-controller-summary.md");
+            Files.writeString(summaryPath, buildBeanUtilsSummaryMarkdown(reports));
+            System.out.println("✅ 저장: " + summaryPath);
 
             for (ControllerReport report : reports) {
                 // controllerClass: "com/example/web/UserController" 형태
@@ -76,5 +108,40 @@ public class Main {
                 System.out.println("✅ 저장: " + mdPath);
             }
         }
+    }
+
+    private static String buildBeanUtilsSummaryMarkdown(List<ControllerReport> reports) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# BeanUtils Spring Controller 요약\n\n");
+        sb.append("> `BeanUtils.get(...)[Spring Controller]` 항목만 추출한 기본 요약 파일  \n");
+        sb.append("> 생성 일시: ").append(LocalDateTime.now()).append("\n\n");
+
+        boolean hasAny = reports.stream().anyMatch(report -> !report.beanUtilsSpringControllerLoads().isEmpty());
+        if (!hasAny) {
+            sb.append("> N/A\n");
+            return sb.toString();
+        }
+
+        for (ControllerReport report : reports) {
+            report.appendBeanUtilsSpringControllerSummary(sb);
+        }
+        return sb.toString();
+    }
+
+    private static String buildOutputReadmeMarkdown(String baseName) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# 산출물 기준 설명\n\n");
+        sb.append("> 이 디렉토리는 `").append(baseName).append(".jar` 분석 결과물입니다.  \n");
+        sb.append("> 생성 일시: ").append(LocalDateTime.now()).append("\n\n");
+        sb.append("## 파일 구성\n\n");
+        sb.append("- `00-beanutils-spring-controller-summary.md`: `BeanUtils.get(...)[Spring Controller]` 항목만 모은 기본 요약 파일\n");
+        sb.append("- `{패키지경로}/{Controller}.md`: 컨트롤러별 상세 호출 구조 리포트\n\n");
+        sb.append("## 산출 기준\n\n");
+        sb.append("- 요약 파일은 `BEAN_UTILS` 노드 중 라벨이 `[Spring Controller]`인 항목만 포함합니다.\n");
+        sb.append("- 요약 파일은 컨트롤러별로 `Endpoint Method`와 `BeanUtils.get(...)[Spring Controller]` 컬럼을 가진 테이블 형식입니다.\n");
+        sb.append("- 같은 엔드포인트 메서드에서 중복되는 대상 컨트롤러는 병합되고, 여러 대상은 한 셀에서 줄바꿈(`<br>`)으로 구분합니다.\n");
+        sb.append("- 상세 리포트는 컨트롤러별 엔드포인트, 호출 트리, BeanUtils 사용 위치, LLM 컨텍스트를 모두 유지합니다.\n");
+        sb.append("- 상세 리포트 경로는 컨트롤러의 패키지 구조를 그대로 따릅니다.\n");
+        return sb.toString();
     }
 }

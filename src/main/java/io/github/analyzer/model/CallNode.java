@@ -14,17 +14,34 @@ public class CallNode {
     public final String className;
     public final String methodName;
     public final String type;
+    public String detail;
     public final List<CallNode> children = new ArrayList<>();
 
     public CallNode(String className, String methodName, String type) {
+        this(className, methodName, type, null);
+    }
+
+    public CallNode(String className, String methodName, String type, String detail) {
         this.className  = className;
         this.methodName = methodName;
         this.type       = type;
+        this.detail     = detail;
     }
 
     public String label() {
+        if ("BEAN_UTILS".equals(type) && detail != null && !detail.isBlank()) {
+            return detail;
+        }
         String simple = className.substring(className.lastIndexOf('/') + 1);
         return simple + "." + methodName + "()";
+    }
+
+    public String beanRole() {
+        if (!"BEAN_UTILS".equals(type) || detail == null) return null;
+        int start = detail.lastIndexOf('[');
+        int end = detail.lastIndexOf(']');
+        if (start < 0 || end <= start) return null;
+        return detail.substring(start + 1, end);
     }
 
     // ── 콘솔 출력 ──

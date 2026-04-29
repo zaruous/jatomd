@@ -43,6 +43,7 @@
   </dependencies>
 
   <build>
+    <finalName>${project.artifactId}-${project.version}</finalName>
     <plugins>
       <!-- 실행 가능한 fat JAR 생성 -->
       <plugin>
@@ -60,7 +61,6 @@
                   <mainClass>io.github.analyzer.Main</mainClass>
                 </transformer>
               </transformers>
-              <finalName>spring-hierarchy-analyzer</finalName>
             </configuration>
           </execution>
         </executions>

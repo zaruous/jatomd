@@ -2,13 +2,17 @@ package io.github.analyzer.model;
 
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 컨트롤러 분석 리포트
  * Markdown 직렬화 및 LLM 컨텍스트 블록 생성 포함
  */
 public class ControllerReport {
+
+    private static final Pattern SPRING_CONTROLLER_PATTERN =
+        Pattern.compile("BeanUtils\\.get\\(([^)]+)\\.class\\) \\[Spring Controller\\]");
 
     public final String controllerClass;
     public final List<Endpoint> endpoints = new ArrayList<>();
@@ -31,6 +35,29 @@ public class ControllerReport {
         grouped.forEach((endpointMethod, labels) ->
             labels.forEach(label -> lines.add(endpointMethod + "() -> " + label)));
         return lines;
+    }
+
+    public List<EndpointRelatedControllers> relatedControllerEndpoints() {
+        List<EndpointRelatedControllers> endpointsWithRelations = new ArrayList<>();
+        for (Endpoint ep : endpoints) {
+            LinkedHashSet<String> labels = new LinkedHashSet<>();
+            collectBeanLoads(ep.tree(), ep.methodName(), labels, "Spring Controller");
+            if (labels.isEmpty()) {
+                continue;
+            }
+
+            List<RelatedControllerRef> relatedControllers = labels.stream()
+                .map(this::parseRelatedController)
+                .filter(Objects::nonNull)
+                .toList();
+            if (relatedControllers.isEmpty()) {
+                continue;
+            }
+
+            endpointsWithRelations.add(new EndpointRelatedControllers(
+                ep.methodName(), ep.httpMethod(), ep.path(), relatedControllers));
+        }
+        return endpointsWithRelations;
     }
 
     public void appendBeanUtilsSpringControllerSummary(StringBuilder sb) {
@@ -180,6 +207,29 @@ public class ControllerReport {
         }
     }
 
+    private void collectBeanLoads(CallNode node, String endpointMethod,
+                                  Set<String> labels, String roleFilter) {
+        if ("BEAN_UTILS".equals(node.type)) {
+            String role = node.beanRole();
+            if (roleFilter == null || roleFilter.equals(role)) {
+                labels.add(node.label());
+            }
+        }
+        for (CallNode child : node.children) {
+            collectBeanLoads(child, endpointMethod, labels, roleFilter);
+        }
+    }
+
+    private RelatedControllerRef parseRelatedController(String label) {
+        Matcher matcher = SPRING_CONTROLLER_PATTERN.matcher(label);
+        if (!matcher.matches()) {
+            return null;
+        }
+        String qualifiedClassName = matcher.group(1);
+        String simpleClassName = qualifiedClassName.substring(qualifiedClassName.lastIndexOf('.') + 1);
+        return new RelatedControllerRef(qualifiedClassName, simpleClassName, label);
+    }
+
     private void appendLlmContext(StringBuilder sb) {
         sb.append("---\n\n## LLM 코딩 가이드 컨텍스트\n\n```\n");
         sb.append("[프로젝트 호출 구조 규칙]\n");
@@ -217,4 +267,17 @@ public class ControllerReport {
         }
         return sb.toString();
     }
+
+    public record RelatedControllerRef(
+        String qualifiedClassName,
+        String simpleClassName,
+        String beanUtilsExpression
+    ) {}
+
+    public record EndpointRelatedControllers(
+        String endpointMethod,
+        String httpMethod,
+        String path,
+        List<RelatedControllerRef> relatedControllers
+    ) {}
 }

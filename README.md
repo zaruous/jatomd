@@ -12,6 +12,7 @@ Spring JAR 파일을 주입하면 **Controller → Service → Impl** 호출 계
 - Interface → Impl 자동 매핑
 - `BeanUtils.copyProperties()` 사용 위치 감지 및 경로 추적
 - `BeanUtils.get(...)[Spring Controller]` 전용 요약 파일 기본 생성
+- 연관 컨트롤러 JSON 산출물 기본 생성
 - Markdown 리포트 + LLM 코딩 가이드 컨텍스트 블록 생성
 - Spring Boot fat JAR / 일반 JAR / WAR 모두 지원
 
@@ -50,6 +51,7 @@ java -jar target/spring-hierarchy-analyzer-1.0.0.jar myapp.jar
                  └─ UserMapper.toEntity() [Impl]
 
 ✅ 저장: myapp/00-beanutils-spring-controller-summary.md
+✅ 저장: myapp/00-related-controllers.json
 ✅ 저장: myapp/README.md
 ✅ 저장: myapp/com/example/web/UserController.md
 ```
@@ -60,6 +62,7 @@ java -jar target/spring-hierarchy-analyzer-1.0.0.jar myapp.jar
 |---|---|
 | `{jar명}/README.md` | 산출물 파일 종류와 요약/상세 리포트의 포함 기준 설명 |
 | `{jar명}/00-beanutils-spring-controller-summary.md` | `BeanUtils.get(...)[Spring Controller]` 항목만 모은 기본 요약 파일 |
+| `{jar명}/00-related-controllers.json` | 컨트롤러별 엔드포인트와 연관 컨트롤러 목록을 구조화한 JSON 산출물 |
 | `{jar명}/{패키지경로}/{Controller}.md` | 엔드포인트별 호출 트리, 파라미터 테이블, BeanUtils 요약, LLM 컨텍스트 블록 |
 
 ## Java 버전별 대응
